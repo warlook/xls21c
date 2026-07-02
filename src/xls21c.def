@@ -1,0 +1,8 @@
+LIBRARY "xls21c.dll"
+
+EXPORTS
+GetClassObject
+DestroyObject
+GetClassNames
+SetPlatformCapabilities
+GetAttachType

@@ -1,0 +1,9 @@
+build/
+.vs/
+*.user
+*.suo
+*.cache
+*.dll
+*.lib
+*.exp
+*.pdb
