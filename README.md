@@ -1,3 +1,7 @@
+[![Infostart](https://infostart.ru/bitrix/templates/sandbox_empty/assets/tpl/abo/img/logo.svg)](https://infostart.ru)
+
+[Публикация на Infostart.ru](https://infostart.ru/1c/articles/2730500/)
+
 # xls21c
 
 Нативная внешняя компонента для 1С 8 для чтения файлов Excel.
