@@ -58,7 +58,13 @@ public:
     EXT_PROC(OpenFile, u"ОткрытьФайл", 1);
     EXT_PROC(CloseFile, u"ЗакрытьФайл", 0);
     EXT_FUNC(GetSheetName, u"ПолучитьИмяЛиста", 1);
-    EXT_FUNC(ReadSheet, u"ПрочитатьЛист", 2);
+    EXT_FUNC_WITH_DEFVAL(ReadSheet, u"ПрочитатьЛист", 3);
+    EXT_DEFVAL_FOR(ReadSheet) {
+        value->vt = VTYPE_PWSTR;
+        value->pwstrVal = nullptr;
+        value->wstrLen = 0;
+        return true;
+    }
 
     END_EXTENSION();
 };

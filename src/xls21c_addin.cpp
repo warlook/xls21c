@@ -1,6 +1,68 @@
 #include "xls21c_addin.h"
 #include "stdafx.h"
 #include <vector>
+#include <cctype>
+
+struct CellRange {
+    int startRow{0};
+    int startCol{0};
+    int endRow{-1};
+    int endCol{-1};
+    bool valid{false};
+};
+
+static int colNameToIndex(const std::string& s, size_t& pos) {
+    int col = 0;
+    while (pos < s.size() && std::isalpha(static_cast<unsigned char>(s[pos]))) {
+        char c = static_cast<char>(std::toupper(static_cast<unsigned char>(s[pos])));
+        col = col * 26 + (c - 'A' + 1);
+        ++pos;
+    }
+    return col > 0 ? col - 1 : -1;
+}
+
+static CellRange parseRange(const std::string& range) {
+    CellRange r;
+    if (range.empty()) return r;
+
+    size_t pos = 0;
+    int sc = colNameToIndex(range, pos);
+    if (sc < 0 || pos >= range.size() || !std::isdigit(static_cast<unsigned char>(range[pos]))) return r;
+    int sr = 0;
+    while (pos < range.size() && std::isdigit(static_cast<unsigned char>(range[pos]))) {
+        sr = sr * 10 + (range[pos] - '0');
+        ++pos;
+    }
+    if (sr < 1) return r;
+
+    if (pos >= range.size()) {
+        r.startRow = sr - 1;
+        r.startCol = sc;
+        r.endRow = r.startRow;
+        r.endCol = r.startCol;
+        r.valid = true;
+        return r;
+    }
+
+    if (range[pos] != ':') return r;
+    ++pos;
+
+    int ec = colNameToIndex(range, pos);
+    if (ec < 0 || pos >= range.size() || !std::isdigit(static_cast<unsigned char>(range[pos]))) return r;
+    int er = 0;
+    while (pos < range.size() && std::isdigit(static_cast<unsigned char>(range[pos]))) {
+        er = er * 10 + (range[pos] - '0');
+        ++pos;
+    }
+    if (er < 1) return r;
+
+    r.startRow = sr - 1;
+    r.startCol = sc;
+    r.endRow = er - 1;
+    r.endCol = ec;
+    r.valid = true;
+    return r;
+}
 
 Xls21cAddin::Xls21cAddin() = default;
 Xls21cAddin::~Xls21cAddin() = default;
@@ -151,19 +213,39 @@ static void appendValueTableValue(chunked_string_builder<u16s>& text, const Cell
     }
 }
 
-static bool readSheetAsValueTable(const SheetData& sheet, tVariant& retVal, IMemoryManager* mm) {
+static bool readSheetAsValueTable(const SheetData& sheet, const CellRange& range, tVariant& retVal, IMemoryManager* mm) {
     chunked_string_builder<u16s> text;
 
-    unsigned dataColCount = 0;
+    int sheetColCount = 0;
     if (!sheet.rows.empty()) {
-        dataColCount = static_cast<unsigned>(sheet.rows[0].size());
+        sheetColCount = static_cast<int>(sheet.rows[0].size());
     }
-    unsigned totalColCount = dataColCount + 1;
+
+    int dataColCount;
+    int firstRow, lastRow;
+    int firstCol, lastCol;
+
+    if (range.valid) {
+        firstCol = std::max(0, range.startCol);
+        lastCol = std::min(sheetColCount - 1, range.endCol);
+        firstRow = std::max(0, range.startRow);
+        lastRow = static_cast<int>(sheet.rows.size()) - 1;
+        if (range.endRow < lastRow) lastRow = range.endRow;
+        dataColCount = (lastCol >= firstCol) ? (lastCol - firstCol + 1) : 0;
+    } else {
+        firstCol = 0;
+        lastCol = sheetColCount - 1;
+        firstRow = 0;
+        lastRow = static_cast<int>(sheet.rows.size()) - 1;
+        dataColCount = sheetColCount;
+    }
+
+    unsigned totalColCount = static_cast<unsigned>(dataColCount + 1);
 
     text << u"{\"#\",acf6192e-81ca-46ef-93a6-5a6968b78663,{9,{"_ss + totalColCount + u","_ss;
 
     text << u"{0,\"НомерСтроки\",{\"Pattern\"},\"НомерСтроки\",0},"_ss;
-    for (unsigned i = 0; i < dataColCount; ++i) {
+    for (int i = 0; i < dataColCount; ++i) {
         lstringu<20> colName{u"k_"_ss + (i + 1)};
         text << u"{"_ss + (i + 1) + u",\"" + colName + u"\",{\"Pattern\"},\"" + colName + u"\",0},"_ss;
     }
@@ -175,23 +257,52 @@ static bool readSheetAsValueTable(const SheetData& sheet, tVariant& retVal, IMem
     }
     text << u"{1,"_ss;
 
-    unsigned rowCount = static_cast<unsigned>(sheet.rows.size());
+    int rowCount = 0;
+    for (int row = firstRow; row <= lastRow; ++row) {
+        if (row < static_cast<int>(sheet.rows.size())) {
+            bool hasData = false;
+            for (int col = firstCol; col <= lastCol; ++col) {
+                if (col < static_cast<int>(sheet.rows[row].size()) &&
+                    sheet.rows[row][col].type != CellValue::Empty &&
+                    !(sheet.rows[row][col].type == CellValue::String && sheet.rows[row][col].text.empty())) {
+                    hasData = true;
+                    break;
+                }
+            }
+            if (hasData) ++rowCount;
+        }
+    }
+
     int startOfRowCount = static_cast<int>(text.length());
     text << expr_spaces<u16s, 20>{} + u","_ss;
 
-    for (unsigned row = 0; row < rowCount; ++row) {
-        if (row > 0) {
+    int outRow = 0;
+    for (int row = firstRow; row <= lastRow; ++row) {
+        if (row >= static_cast<int>(sheet.rows.size())) break;
+        bool hasData = false;
+        for (int col = firstCol; col <= lastCol; ++col) {
+            if (col < static_cast<int>(sheet.rows[row].size()) &&
+                sheet.rows[row][col].type != CellValue::Empty &&
+                !(sheet.rows[row][col].type == CellValue::String && sheet.rows[row][col].text.empty())) {
+                hasData = true;
+                break;
+            }
+        }
+        if (!hasData) continue;
+
+        if (outRow > 0) {
             text << u"0},"_ss;
         }
-        text << u"{2,"_ss + row + u","_ss + totalColCount + u","_ss;
-        text << u"{\"N\","_ss + (row + 1) + u"},"_ss;
-        for (unsigned col = 0; col < dataColCount; ++col) {
-            if (col < sheet.rows[row].size()) {
+        text << u"{2,"_ss + outRow + u","_ss + totalColCount + u","_ss;
+        text << u"{\"N\","_ss + (outRow + 1) + u"},"_ss;
+        for (int col = firstCol; col <= lastCol; ++col) {
+            if (col < static_cast<int>(sheet.rows[row].size())) {
                 appendValueTableValue(text, sheet.rows[row][col]);
             } else {
                 text << u"{\"L\"},"_ss;
             }
         }
+        ++outRow;
     }
 
     if (rowCount == 0) {
@@ -231,17 +342,36 @@ static bool readSheetAsValueTable(const SheetData& sheet, tVariant& retVal, IMem
     return true;
 }
 
-static bool readSheetAsJson(const SheetData& sheet, tVariant& retVal, IMemoryManager* mm) {
+static bool readSheetAsJson(const SheetData& sheet, const CellRange& range, tVariant& retVal, IMemoryManager* mm) {
     chunked_string_builder<u16s> text;
 
     text << u"{\"#type\":\"jv8:Array\",\"#value\":[{\"#type\":\"jv8:Array\",\"#value\":["_ss;
 
-    unsigned colCount = 0;
+    int sheetColCount = 0;
     if (!sheet.rows.empty()) {
-        colCount = static_cast<unsigned>(sheet.rows[0].size());
+        sheetColCount = static_cast<int>(sheet.rows[0].size());
     }
 
-    for (unsigned i = 0; i < colCount; ++i) {
+    int firstRow, lastRow;
+    int firstCol, lastCol;
+    int dataColCount;
+
+    if (range.valid) {
+        firstCol = std::max(0, range.startCol);
+        lastCol = std::min(sheetColCount - 1, range.endCol);
+        firstRow = std::max(0, range.startRow);
+        lastRow = static_cast<int>(sheet.rows.size()) - 1;
+        if (range.endRow < lastRow) lastRow = range.endRow;
+        dataColCount = (lastCol >= firstCol) ? (lastCol - firstCol + 1) : 0;
+    } else {
+        firstCol = 0;
+        lastCol = sheetColCount - 1;
+        firstRow = 0;
+        lastRow = static_cast<int>(sheet.rows.size()) - 1;
+        dataColCount = sheetColCount;
+    }
+
+    for (int i = 0; i < dataColCount; ++i) {
         if (i > 0) text << u","_ss;
         lstringu<20> colName{u"k_"_ss + (i + 1)};
         text << u"{\"#type\":\"jxs:string\",\"#value\":\""_ss + colName + u"\"}"_ss;
@@ -249,11 +379,23 @@ static bool readSheetAsJson(const SheetData& sheet, tVariant& retVal, IMemoryMan
 
     text << u"]}"_ss;
 
-    for (unsigned row = 0; row < sheet.rows.size(); ++row) {
+    for (int row = firstRow; row <= lastRow; ++row) {
+        if (row >= static_cast<int>(sheet.rows.size())) break;
+        bool hasData = false;
+        for (int col = firstCol; col <= lastCol; ++col) {
+            if (col < static_cast<int>(sheet.rows[row].size()) &&
+                sheet.rows[row][col].type != CellValue::Empty &&
+                !(sheet.rows[row][col].type == CellValue::String && sheet.rows[row][col].text.empty())) {
+                hasData = true;
+                break;
+            }
+        }
+        if (!hasData) continue;
+
         text << u",{\"#type\":\"jv8:Array\",\"#value\":["_ss;
-        for (unsigned col = 0; col < colCount; ++col) {
-            if (col > 0) text << u","_ss;
-            if (col < sheet.rows[row].size()) {
+        for (int col = firstCol; col <= lastCol; ++col) {
+            if (col != firstCol) text << u","_ss;
+            if (col < static_cast<int>(sheet.rows[row].size())) {
                 const auto& cell = sheet.rows[row][col];
                 switch (cell.type) {
                 case CellValue::Empty:
@@ -308,6 +450,20 @@ bool Xls21cAddin::ReadSheet(tVariant& retVal, tVariant* params, unsigned count) 
     int index = params[0].intVal;
     stru format = varToTextU(params[1]);
 
+    CellRange range;
+    if (count >= 3 && params[2].vt == VTYPE_PWSTR) {
+        stru rangeStr = varToTextU(params[2]);
+        std::string rangeUtf8;
+        rangeUtf8.reserve(rangeStr.length());
+        for (size_t i = 0; i < rangeStr.length(); ++i) {
+            rangeUtf8 += static_cast<char>(rangeStr[i]);
+        }
+        range = parseRange(rangeUtf8);
+        if (!range.valid && !rangeUtf8.empty()) {
+            return error(u"Неверный формат диапазона", u"Invalid range format");
+        }
+    }
+
     if (index < 0 || index >= reader_.sheetCount()) {
         return error(u"Неверный индекс листа", u"Invalid sheet index");
     }
@@ -320,9 +476,9 @@ bool Xls21cAddin::ReadSheet(tVariant& retVal, tVariant* params, unsigned count) 
     lastError_.make_empty();
 
     if (format.equal_ia(u"ValueTable") || format.equal_iu(u"ТаблицаЗначений")) {
-        return readSheetAsValueTable(*sheet, retVal, memoryManager_);
+        return readSheetAsValueTable(*sheet, range, retVal, memoryManager_);
     } else if (format.equal_ia(u"JSON")) {
-        return readSheetAsJson(*sheet, retVal, memoryManager_);
+        return readSheetAsJson(*sheet, range, retVal, memoryManager_);
     } else {
         return error(u"Неизвестный формат для результата", u"Unknown result format");
     }
