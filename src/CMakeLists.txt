@@ -37,6 +37,13 @@ FetchContent_MakeAvailable(libxls)
 set(LIBXLS_SRC_DIR "${CMAKE_BINARY_DIR}/_deps/libxls-src/src")
 set(LIBXLS_INC_DIR "${CMAKE_BINARY_DIR}/_deps/libxls-src/include")
 
+file(READ "${LIBXLS_SRC_DIR}/xlstool.c" _xlstool_content)
+string(REPLACE
+    "const char *from_encoding = pWB->is5ver ? encoding_for_codepage(pWB->codepage) : \"ISO-8859-1\";"
+    "const char *from_encoding = encoding_for_codepage(pWB->codepage);"
+    _xlstool_content "${_xlstool_content}")
+file(WRITE "${LIBXLS_SRC_DIR}/xlstool.c" "${_xlstool_content}")
+
 file(WRITE "${LIBXLS_SRC_DIR}/config.h"
 "/* config.h for libxls on Windows with MSVC */\n"
 "#define HAVE_LOCALE_H 1\n"
