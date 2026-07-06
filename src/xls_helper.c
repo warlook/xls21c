@@ -59,9 +59,29 @@ static int has_high_bytes(const char* s) {
     return 0;
 }
 
-static char* fix_cp1251_encoding(const char* s) {
+static int is_valid_utf8(const char* s) {
+    const unsigned char* p = (const unsigned char*)s;
+    while (*p) {
+        if (*p < 0x80) { p++; continue; }
+        int extra = 0;
+        if ((*p & 0xE0) == 0xC0) extra = 1;
+        else if ((*p & 0xF0) == 0xE0) extra = 2;
+        else if ((*p & 0xF8) == 0xF0) extra = 3;
+        else return 0;
+        for (int i = 0; i < extra; i++) {
+            p++;
+            if ((*p & 0xC0) != 0x80) return 0;
+        }
+        p++;
+    }
+    return 1;
+}
+
+static char* fix_cp1251_encoding(const char* s, int need_fix) {
     if (!s) return NULL;
+    if (!need_fix) return strdup(s);
     if (!has_high_bytes(s)) return strdup(s);
+    if (is_valid_utf8(s)) return strdup(s);
 
     int src_len = (int)strlen(s);
     char* buf = (char*)malloc(src_len * 3 + 1);
@@ -108,10 +128,7 @@ static int xls_read_from_buffer_impl(const unsigned char* buf, size_t len, XlsDa
 
     xls_parseWorkBook(wb);
 
-    if (wb->codepage == 0 || wb->codepage == 1252) {
-        wb->codepage = 1251;
-        wb->converter = NULL;
-    }
+    int need_fix = (wb->codepage == 0);
 
     out->sheet_count = (int)wb->sheets.count;
     out->sheets = (XlsSheet*)calloc(wb->sheets.count, sizeof(XlsSheet));
@@ -128,7 +145,7 @@ static int xls_read_from_buffer_impl(const unsigned char* buf, size_t len, XlsDa
 
         XlsSheet* s = &out->sheets[si];
         char* raw_name = wb->sheets.sheet[si].name ? wb->sheets.sheet[si].name : "";
-        s->name = fix_cp1251_encoding(raw_name);
+        s->name = fix_cp1251_encoding(raw_name, need_fix);
 
         int rowCount = ws->rows.lastrow + 1;
         int colCount = ws->rows.lastcol + 1;
@@ -159,7 +176,7 @@ static int xls_read_from_buffer_impl(const unsigned char* buf, size_t len, XlsDa
 
                 XlsCellData* cd = &s->cells[row * colCount + col];
                 if (cell->str && strlen(cell->str) > 0) {
-                    cd->str = fix_cp1251_encoding(cell->str);
+                    cd->str = fix_cp1251_encoding(cell->str, need_fix);
                 } else {
                     cd->str = NULL;
                 }
