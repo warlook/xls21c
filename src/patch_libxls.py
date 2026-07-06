@@ -81,3 +81,29 @@ patch_file(os.path.join(src, 'xlstool.c'),
         }""",
     """    case XLS_RECORD_LABELSST:
         offset = label[0] + (label[1] << 8) + ((DWORD)label[2] << 16) + ((DWORD)label[3] << 24);""")
+
+# 8. xlstool.c: detect BIFF5 LABEL format within BIFF8 files
+# If 2-byte length > 255 and not BIFF5, fall back to empty string instead of crashing
+patch_file(os.path.join(src, 'xlstool.c'),
+    """    case XLS_RECORD_LABEL:
+    case XLS_RECORD_RSTRING:
+        len = label[0] + (label[1] << 8);
+        label += 2;
+        if (pWB->is5ver || (*(label++) & 0x01) == 0) {
+            ret = codepage_decode((char *)label, len, pWB);
+        } else {
+            ret = unicode_decode((char *)label, len*2, pWB);
+        }""",
+    """    case XLS_RECORD_LABEL:
+    case XLS_RECORD_RSTRING:
+        len = label[0] + (label[1] << 8);
+        if (len > 0xFFF) {
+            ret = strdup("");
+        } else {
+            label += 2;
+            if (pWB->is5ver || (*(label++) & 0x01) == 0) {
+                ret = codepage_decode((char *)label, len, pWB);
+            } else {
+                ret = unicode_decode((char *)label, len*2, pWB);
+            }
+        }""")

@@ -213,6 +213,11 @@ static int xls_read_from_buffer_impl(const unsigned char* buf, size_t len, XlsDa
                     }
                 } else if (cell->id == XLS_RECORD_BLANK || cell->id == 0) {
                     cd->type = XLCELL_EMPTY;
+                } else if (cell->id == XLS_RECORD_LABEL && (!cell->str || strlen(cell->str) == 0)) {
+                    xls_free_data(out);
+                    xls_close_WS(ws);
+                    xls_close_WB(wb);
+                    return -1;
                 } else if (cell->str && strlen(cell->str) > 0) {
                     cd->type = XLCELL_STRING;
                     cd->str = fix_cp1251_encoding(cell->str, need_fix);
