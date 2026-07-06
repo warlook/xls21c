@@ -81,26 +81,42 @@ static char* fix_cp1251_encoding(const char* s, int need_fix) {
     if (!s) return NULL;
     if (!need_fix) return strdup(s);
     if (!has_high_bytes(s)) return strdup(s);
-    if (is_valid_utf8(s)) return strdup(s);
 
     int src_len = (int)strlen(s);
-    char* buf = (char*)malloc(src_len * 3 + 1);
+    char* buf = (char*)malloc(src_len * 4 + 1);
     if (!buf) return strdup(s);
 
-    int out_pos = 0;
-    for (int i = 0; i < src_len; i++) {
-        unsigned char b = (unsigned char)s[i];
-        unsigned int cp;
-        if (b < 0x80) {
-            cp = b;
-        } else {
-            cp = cp1251_to_unicode[b - 0x80];
+    if (is_valid_utf8(s)) {
+        int out_pos = 0;
+        int i = 0;
+        while (i < src_len) {
+            int clen = 0;
+            unsigned int cp = utf8_decode(s + i, &clen);
+            if (cp >= 0x80 && cp <= 0xFF) {
+                cp = cp1251_to_unicode[cp - 0x80];
+            }
+            int elen = 0;
+            utf8_encode(cp, buf + out_pos, &elen);
+            out_pos += elen;
+            i += clen;
         }
-        int elen = 0;
-        utf8_encode(cp, buf + out_pos, &elen);
-        out_pos += elen;
+        buf[out_pos] = 0;
+    } else {
+        int out_pos = 0;
+        for (int i = 0; i < src_len; i++) {
+            unsigned char b = (unsigned char)s[i];
+            unsigned int cp;
+            if (b < 0x80) {
+                cp = b;
+            } else {
+                cp = cp1251_to_unicode[b - 0x80];
+            }
+            int elen = 0;
+            utf8_encode(cp, buf + out_pos, &elen);
+            out_pos += elen;
+        }
+        buf[out_pos] = 0;
     }
-    buf[out_pos] = 0;
     return buf;
 }
 
@@ -128,7 +144,7 @@ static int xls_read_from_buffer_impl(const unsigned char* buf, size_t len, XlsDa
 
     xls_parseWorkBook(wb);
 
-    int need_fix = (wb->codepage == 0);
+    int need_fix = (wb->codepage == 0 || wb->codepage == 1251);
 
     out->sheet_count = (int)wb->sheets.count;
     out->sheets = (XlsSheet*)calloc(wb->sheets.count, sizeof(XlsSheet));

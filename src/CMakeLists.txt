@@ -37,31 +37,12 @@ FetchContent_MakeAvailable(libxls)
 set(LIBXLS_SRC_DIR "${CMAKE_BINARY_DIR}/_deps/libxls-src/src")
 set(LIBXLS_INC_DIR "${CMAKE_BINARY_DIR}/_deps/libxls-src/include")
 
-file(READ "${LIBXLS_SRC_DIR}/xlstool.c" _xlstool_content)
-string(REPLACE
-    "const char *from_encoding = pWB->is5ver ? encoding_for_codepage(pWB->codepage) : \"ISO-8859-1\";"
-    "const char *from_encoding = encoding_for_codepage(pWB->codepage);"
-    _xlstool_content "${_xlstool_content}")
-file(WRITE "${LIBXLS_SRC_DIR}/xlstool.c" "${_xlstool_content}")
-
-file(READ "${LIBXLS_SRC_DIR}/xls.c" _xls_content)
-string(REPLACE
-    "tmp->lcell=row->lcell;"
-    "tmp->lcell=row->lcell > pWS->rows.lastcol ? row->lcell : pWS->rows.lastcol;"
-    _xls_content "${_xls_content}")
-string(REPLACE
-    "            if (xls_isCellTooSmall(pWS->workbook, &tmp, buf)) {\n                retval = LIBXLS_ERROR_PARSE;\n                goto cleanup;\n            }\n            if (pWS->rows.lastcol<xlsShortVal(((COL*)buf)->col))"
-    "            xls_isCellTooSmall(pWS->workbook, &tmp, buf);\n            if (pWS->rows.lastcol<xlsShortVal(((COL*)buf)->col))"
-    _xls_content "${_xls_content}")
-string(REPLACE
-    "    if (col >= row->cells.count) {\n        if (xls_debug) fprintf(stderr, \"Error: Column index out of bounds\\n\");\n        return NULL;\n    }"
-    "    if (col >= row->cells.count) {\n        static struct st_cell_data empty_cell = {0};\n        return &empty_cell;\n    }"
-    _xls_content "${_xls_content}")
-string(REPLACE
-    "            if ((cell = xls_addCell(pWS, &tmp, buf)) == NULL) {\n                retval = LIBXLS_ERROR_PARSE;\n                goto cleanup;\n            }"
-    "            xls_addCell(pWS, &tmp, buf);"
-    _xls_content "${_xls_content}")
-file(WRITE "${LIBXLS_SRC_DIR}/xls.c" "${_xls_content}")
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/patch_libxls.py" "${LIBXLS_SRC_DIR}"
+    RESULT_VARIABLE patch_result)
+if(NOT patch_result EQUAL 0)
+    message(FATAL_ERROR "Failed to patch libxls")
+endif()
 
 file(WRITE "${LIBXLS_SRC_DIR}/config.h"
 "/* config.h for libxls on Windows with MSVC */\n"
