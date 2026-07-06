@@ -39,6 +39,9 @@ bool XlsxReader::open(const std::wstring& filePath) {
     } catch (const std::exception& e) {
         lastError_ = e.what();
         return false;
+    } catch (...) {
+        lastError_ = "Unknown error while opening file";
+        return false;
     }
 }
 
@@ -198,77 +201,91 @@ bool XlsxReader::readXlsx(const std::wstring& path) {
         }
         lastError_ = e.what();
         return false;
+    } catch (...) {
+        if (useTemp) {
+            remove(tempPath.c_str());
+        }
+        lastError_ = "Unknown error while reading XLSX file";
+        return false;
     }
 }
 
 bool XlsxReader::readXls(const std::wstring& path) {
-    FILE* f = _wfopen(path.c_str(), L"rb");
-    if (!f) {
-        lastError_ = "Cannot open XLS file";
-        return false;
-    }
-
-    fseek(f, 0, SEEK_END);
-    long fileSize = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    std::vector<unsigned char> buffer(fileSize);
-    size_t readBytes = fread(buffer.data(), 1, fileSize, f);
-    fclose(f);
-
-    if (static_cast<long>(readBytes) != fileSize) {
-        lastError_ = "Failed to read XLS file";
-        return false;
-    }
-
-    XlsData xlsData = {};
-    if (xls_read_from_buffer(buffer.data(), buffer.size(), &xlsData) != 0) {
-        lastError_ = "Failed to parse XLS file";
-        xls_free_data(&xlsData);
-        return false;
-    }
-
-    sheets_.clear();
-    sheets_.reserve(xlsData.sheet_count);
-
-    for (int si = 0; si < xlsData.sheet_count; si++) {
-        XlsSheet* s = &xlsData.sheets[si];
-        SheetData sheetData;
-        sheetData.name = s->name ? s->name : ("Sheet" + std::to_string(si + 1));
-
-        if (s->row_count > 0 && s->col_count > 0) {
-            sheetData.rows.resize(s->row_count);
-            for (int r = 0; r < s->row_count; r++) {
-                sheetData.rows[r].resize(s->col_count);
-                for (int c = 0; c < s->col_count; c++) {
-                    CellValue cv;
-                    XlsCellData* cd = &s->cells[r * s->col_count + c];
-                    switch (cd->type) {
-                    case XLCELL_NUMBER:
-                        cv.type = CellValue::Number;
-                        cv.number = cd->num;
-                        break;
-                    case XLCELL_BOOLEAN:
-                        cv.type = CellValue::Boolean;
-                        cv.boolean = (cd->bool_val != 0);
-                        break;
-                    case XLCELL_STRING:
-                        cv.type = CellValue::String;
-                        cv.text = cd->str ? cd->str : "";
-                        break;
-                    default:
-                        cv.type = CellValue::Empty;
-                        break;
-                    }
-                    sheetData.rows[r][c] = std::move(cv);
-                }
-            }
+    try {
+        FILE* f = _wfopen(path.c_str(), L"rb");
+        if (!f) {
+            lastError_ = "Cannot open XLS file";
+            return false;
         }
 
-        sheets_.push_back(std::move(sheetData));
-    }
+        fseek(f, 0, SEEK_END);
+        long fileSize = ftell(f);
+        fseek(f, 0, SEEK_SET);
 
-    xls_free_data(&xlsData);
-    fileOpen_ = true;
-    return true;
+        std::vector<unsigned char> buffer(fileSize);
+        size_t readBytes = fread(buffer.data(), 1, fileSize, f);
+        fclose(f);
+
+        if (static_cast<long>(readBytes) != fileSize) {
+            lastError_ = "Failed to read XLS file";
+            return false;
+        }
+
+        XlsData xlsData = {};
+        if (xls_read_from_buffer(buffer.data(), buffer.size(), &xlsData) != 0) {
+            lastError_ = "Failed to parse XLS file";
+            xls_free_data(&xlsData);
+            return false;
+        }
+
+        sheets_.clear();
+        sheets_.reserve(xlsData.sheet_count);
+
+        for (int si = 0; si < xlsData.sheet_count; si++) {
+            XlsSheet* s = &xlsData.sheets[si];
+            SheetData sheetData;
+            sheetData.name = s->name ? s->name : ("Sheet" + std::to_string(si + 1));
+
+            if (s->row_count > 0 && s->col_count > 0) {
+                sheetData.rows.resize(s->row_count);
+                for (int r = 0; r < s->row_count; r++) {
+                    sheetData.rows[r].resize(s->col_count);
+                    for (int c = 0; c < s->col_count; c++) {
+                        CellValue cv;
+                        XlsCellData* cd = &s->cells[r * s->col_count + c];
+                        switch (cd->type) {
+                        case XLCELL_NUMBER:
+                            cv.type = CellValue::Number;
+                            cv.number = cd->num;
+                            break;
+                        case XLCELL_BOOLEAN:
+                            cv.type = CellValue::Boolean;
+                            cv.boolean = (cd->bool_val != 0);
+                            break;
+                        case XLCELL_STRING:
+                            cv.type = CellValue::String;
+                            cv.text = cd->str ? cd->str : "";
+                            break;
+                        default:
+                            cv.type = CellValue::Empty;
+                            break;
+                        }
+                        sheetData.rows[r][c] = std::move(cv);
+                    }
+                }
+            }
+
+            sheets_.push_back(std::move(sheetData));
+        }
+
+        xls_free_data(&xlsData);
+        fileOpen_ = true;
+        return true;
+    } catch (const std::exception& e) {
+        lastError_ = e.what();
+        return false;
+    } catch (...) {
+        lastError_ = "Unknown error while reading XLS file";
+        return false;
+    }
 }
