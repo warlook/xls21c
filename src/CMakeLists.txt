@@ -44,6 +44,13 @@ string(REPLACE
     _xlstool_content "${_xlstool_content}")
 file(WRITE "${LIBXLS_SRC_DIR}/xlstool.c" "${_xlstool_content}")
 
+file(READ "${LIBXLS_SRC_DIR}/xls.c" _xls_content)
+string(REPLACE
+    "tmp->lcell=row->lcell;"
+    "tmp->lcell=row->lcell > pWS->rows.lastcol ? row->lcell : pWS->rows.lastcol;"
+    _xls_content "${_xls_content}")
+file(WRITE "${LIBXLS_SRC_DIR}/xls.c" "${_xls_content}")
+
 file(WRITE "${LIBXLS_SRC_DIR}/config.h"
 "/* config.h for libxls on Windows with MSVC */\n"
 "#define HAVE_LOCALE_H 1\n"
