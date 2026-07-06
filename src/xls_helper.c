@@ -175,12 +175,34 @@ static int xls_read_from_buffer_impl(const unsigned char* buf, size_t len, XlsDa
                 if (!cell) continue;
 
                 XlsCellData* cd = &s->cells[row * colCount + col];
-                if (cell->str && strlen(cell->str) > 0) {
+                cd->str = NULL;
+                cd->num = 0;
+                cd->bool_val = 0;
+
+                if (cell->id == XLS_RECORD_NUMBER || cell->id == XLS_RECORD_RK || cell->id == XLS_RECORD_MULRK) {
+                    cd->type = XLCELL_NUMBER;
+                    cd->num = cell->d;
+                } else if (cell->id == XLS_RECORD_FORMULA || cell->id == XLS_RECORD_FORMULA_ALT) {
+                    if (cell->str && !strcmp(cell->str, "bool")) {
+                        cd->type = XLCELL_BOOLEAN;
+                        cd->bool_val = (int)cell->d;
+                    } else if (cell->str && !strcmp(cell->str, "error")) {
+                        cd->type = XLCELL_ERROR;
+                    } else if (cell->str && strlen(cell->str) > 0) {
+                        cd->type = XLCELL_STRING;
+                        cd->str = fix_cp1251_encoding(cell->str, need_fix);
+                    } else {
+                        cd->type = XLCELL_NUMBER;
+                        cd->num = cell->d;
+                    }
+                } else if (cell->id == XLS_RECORD_BLANK || cell->id == 0) {
+                    cd->type = XLCELL_EMPTY;
+                } else if (cell->str && strlen(cell->str) > 0) {
+                    cd->type = XLCELL_STRING;
                     cd->str = fix_cp1251_encoding(cell->str, need_fix);
                 } else {
-                    cd->str = NULL;
+                    cd->type = XLCELL_EMPTY;
                 }
-                cd->type = cd->str ? XLCELL_STRING : XLCELL_EMPTY;
             }
         }
 
