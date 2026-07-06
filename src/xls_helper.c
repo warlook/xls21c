@@ -4,6 +4,10 @@
 #include <string.h>
 
 #ifdef _MSC_VER
+#include <windows.h>
+#endif
+
+#ifdef _MSC_VER
 #define strdup _strdup
 #endif
 
@@ -24,7 +28,7 @@ void xls_free_data(XlsData* data) {
     data->sheet_count = 0;
 }
 
-int xls_read_from_buffer(const unsigned char* buf, size_t len, XlsData* out) {
+static int xls_read_from_buffer_impl(const unsigned char* buf, size_t len, XlsData* out) {
     xls_error_t err;
     xlsWorkBook* wb = xls_open_buffer(buf, len, "UTF-8", &err);
     if (!wb) return -1;
@@ -85,4 +89,19 @@ int xls_read_from_buffer(const unsigned char* buf, size_t len, XlsData* out) {
 
     xls_close_WB(wb);
     return 0;
+}
+
+int xls_read_from_buffer(const unsigned char* buf, size_t len, XlsData* out) {
+#ifdef _MSC_VER
+    int result = -1;
+    __try {
+        result = xls_read_from_buffer_impl(buf, len, out);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        memset(out, 0, sizeof(XlsData));
+        return -1;
+    }
+    return result;
+#else
+    return xls_read_from_buffer_impl(buf, len, out);
+#endif
 }
